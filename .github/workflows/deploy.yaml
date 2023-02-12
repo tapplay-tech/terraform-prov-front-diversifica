@@ -1,0 +1,190 @@
+name: Deployment
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  plan-stg:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Configure AWS Credentials Action For GitHub Actions
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v1
+
+      - name: Terraform Format Staging
+        run: terraform fmt -check
+
+      - name: Terraform Init Staging
+        run: terraform init
+      
+      - name: Terraform Validate
+        run: terraform validate -no-color
+
+      - name: Terraform Plan Staging
+        run: |
+          terraform workspace select stg
+          terraform plan -out tfapply-stg
+  
+      - uses: actions/upload-artifact@v2
+        with:
+          name: tfapply-stg
+          path: tfapply-stg
+
+  deploy-stg:
+    runs-on: ubuntu-latest
+    environment: stg
+    needs: plan-stg
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - uses: actions/download-artifact@v2
+        with:
+          name: tfapply-stg
+
+      - name: Configure AWS Credentials Action For GitHub Actions
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Setup Terraform Staging
+        uses: hashicorp/setup-terraform@v1
+
+      - name: Terraform Init Staging
+        run: terraform init
+
+      - name: Terraform Apply Staging
+        run: |
+          terraform workspace select stg
+          terraform apply -auto-approve tfapply-stg
+
+  plan-prd:
+    runs-on: ubuntu-latest
+    needs: [plan-stg, deploy-stg]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Configure AWS Credentials Action For GitHub Actions
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v1
+
+      - name: Terraform Format
+        run: terraform fmt -check
+
+      - name: Terraform Init Production
+        run: terraform init
+      
+      - name: Terraform Validate Production
+        run: terraform validate -no-color
+
+      - name: Terraform Plan Production
+        run: |
+          terraform workspace select prd
+          terraform plan -out tfapply-prd
+
+      - uses: actions/upload-artifact@v2
+        with:
+          name: tfapply-prd
+          path: tfapply-prd
+  
+  deploy-prd:
+    runs-on: ubuntu-latest
+    environment: prd
+    needs: [plan-prd,  deploy-stg]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - uses: actions/download-artifact@v2
+        with:
+          name: tfapply-prd
+
+      - name: Configure AWS Credentials Action For GitHub Actions
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v1
+
+      - name: Terraform Init Staging
+        run: terraform init
+
+      - name: Terraform Apply Production
+        run: |
+          terraform workspace select prd
+          terraform apply -auto-approve tfapply-prd
+
+  destroy-stg:
+    runs-on: ubuntu-latest
+    environment: stg-destroy
+    needs: deploy-stg
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Configure AWS Credentials Action For GitHub Actions
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v1
+
+      - name: Terraform Init Staging
+        run: terraform init
+
+      - name: Terraform Destroy Staging
+        run: |
+          terraform workspace select stg
+          terraform apply -destroy -auto-approve
+
+  destroy-prd:
+    runs-on: ubuntu-latest
+    environment: prd-destroy
+    needs: deploy-prd
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Configure AWS Credentials Action For GitHub Actions
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v1
+
+      - name: Terraform Init Production
+        run: terraform init
+
+      - name: Terraform Destroy Production
+        run: |
+          terraform workspace select prd
+          terraform apply -destroy -auto-approve
