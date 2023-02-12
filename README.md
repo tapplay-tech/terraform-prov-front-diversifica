@@ -1,0 +1,1 @@
+# terraform-prov-front-diversifica
